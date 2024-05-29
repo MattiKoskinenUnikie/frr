@@ -204,6 +204,8 @@ SNMP_LOCAL_VARIABLES
 static oid ospf_oid[] = {OSPF2MIB};
 static oid ospf_trap_oid[] = {OSPF2MIB, 16, 2}; /* Not reverse mappable! */
 
+static char context[SNMP_MAX_CONTEXT_SIZE];
+
 /* IP address 0.0.0.0. */
 static struct in_addr ospf_empty_addr = {.s_addr = 0};
 
@@ -2427,10 +2429,10 @@ static void ospfTrapNbrStateChange(struct ospf_neighbor *on)
 	oid_copy_in_addr(index, &(on->address.u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
-		  ospfNbrTrapList, array_size(ospfNbrTrapList), NBRSTATECHANGE);
+		  ospfNbrTrapList, array_size(ospfNbrTrapList), NBRSTATECHANGE, context);
 }
 
 static void ospfTrapVirtNbrStateChange(struct ospf_neighbor *on)
@@ -2442,11 +2444,11 @@ static void ospfTrapVirtNbrStateChange(struct ospf_neighbor *on)
 	oid_copy_in_addr(index, &(on->address.u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
 		  ospfVirtNbrTrapList, array_size(ospfVirtNbrTrapList),
-		  VIRTNBRSTATECHANGE);
+		  VIRTNBRSTATECHANGE, context);
 }
 
 static int ospf_snmp_nsm_change(struct ospf_neighbor *nbr, int next_state,
@@ -2486,10 +2488,11 @@ static void ospfTrapIfStateChange(struct ospf_interface *oi)
 	oid_copy_in_addr(index, &(oi->address->u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
-		  ospfIfTrapList, array_size(ospfIfTrapList), IFSTATECHANGE);
+		  ospfIfTrapList, array_size(ospfIfTrapList), IFSTATECHANGE,
+		  context);
 }
 
 static void ospfTrapVirtIfStateChange(struct ospf_interface *oi)
@@ -2501,11 +2504,11 @@ static void ospfTrapVirtIfStateChange(struct ospf_interface *oi)
 	oid_copy_in_addr(index, &(oi->address->u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
 		  ospfVirtIfTrapList, array_size(ospfVirtIfTrapList),
-		  VIRTIFSTATECHANGE);
+		  VIRTIFSTATECHANGE, context);
 }
 
 static int ospf_snmp_ism_change(struct ospf_interface *oi, int state,
@@ -2530,7 +2533,12 @@ static int ospf_snmp_init(struct event_loop *tm)
 	ospf_snmp_iflist = list_new();
 	ospf_snmp_vl_table = route_table_init();
 	smux_init(tm);
-	REGISTER_MIB("mibII/ospf", ospf_variables, variable, ospf_oid);
+	strncpy(context, SNMP_MAX_CONTEXT_SIZE, THIS_MODULE->load_args);
+	register_mib_context("mibII/ospf", ospf_variables,
+			sizeof(struct variable),
+			sizeof(ospf_variables) / sizeof(struct variable),
+			ospf_oid, sizeof(ospf_oid) / sizeof(oid),
+			DEFAULT_MIB_PRIORITY, 0, 0, NULL, context, -1, 0);
 	return 0;
 }
 
