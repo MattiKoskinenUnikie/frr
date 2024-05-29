@@ -133,12 +133,25 @@ extern void smux_trap(struct variable *, size_t, const oid *, size_t,
 		      const oid *, size_t, const oid *, size_t,
 		      const struct trap_object *, size_t, uint8_t);
 
+extern void smux_v3trap(struct variable *, size_t, const oid *, size_t,
+		      const oid *, size_t, const oid *, size_t,
+		      const struct trap_object *, size_t, uint8_t,
+			  const char *context);
+
 extern int smux_trap_multi_index(struct variable *vp, size_t vp_len,
 				 const oid *ename, size_t enamelen,
 				 const oid *name, size_t namelen,
 				 struct index_oid *iname, size_t index_len,
 				 const struct trap_object *trapobj,
 				 size_t trapobjlen, uint8_t sptrap);
+
+extern int smux_v3trap_multi_index(struct variable *vp, size_t vp_len,
+				 const oid *ename, size_t enamelen,
+				 const oid *name, size_t namelen,
+				 struct index_oid *iname, size_t index_len,
+				 const struct trap_object *trapobj,
+				 size_t trapobjlen, uint8_t sptrap,
+				 const char *context);
 
 extern void smux_events_update(void);
 extern int oid_compare(const oid *, int, const oid *, int);

@@ -204,6 +204,8 @@ SNMP_LOCAL_VARIABLES
 static oid ospf_oid[] = {OSPF2MIB};
 static oid ospf_trap_oid[] = {OSPF2MIB, 16, 2}; /* Not reverse mappable! */
 
+static char stored_context[SNMP_MAX_CONTEXT_SIZE];
+
 /* IP address 0.0.0.0. */
 static struct in_addr ospf_empty_addr = {.s_addr = 0};
 
@@ -906,7 +908,7 @@ static struct ospf_lsa *ospfLsdbLookup(struct variable *v, oid *name,
 		area = ospf_area_lookup_by_area_id(ospf, *area_id);
 		if (!area)
 			return NULL;
-		offset++;
+		offset += IN_ADDR_SIZE;
 
 		/* Type. */
 		*type = *offset;
@@ -914,7 +916,7 @@ static struct ospf_lsa *ospfLsdbLookup(struct variable *v, oid *name,
 
 		/* LS ID. */
 		oid2in_addr(offset, IN_ADDR_SIZE, ls_id);
-		offset++;
+		offset += IN_ADDR_SIZE;
 
 		/* Router ID. */
 		oid2in_addr(offset, IN_ADDR_SIZE, router_id);
@@ -971,7 +973,7 @@ static struct ospf_lsa *ospfLsdbLookup(struct variable *v, oid *name,
 			}
 
 			/* Router ID. */
-			offset++;
+			offset += IN_ADDR_SIZE;
 			offsetlen -= IN_ADDR_SIZE;
 			len = offsetlen;
 
@@ -996,11 +998,11 @@ static struct ospf_lsa *ospfLsdbLookup(struct variable *v, oid *name,
 				/* Fill in value. */
 				offset = name + v->namelen;
 				oid_copy_in_addr(offset, area_id);
-				offset++;
+				offset += IN_ADDR_SIZE;
 				*offset = lsa->data->type;
 				offset++;
 				oid_copy_in_addr(offset, &lsa->data->id);
-				offset++;
+				offset += IN_ADDR_SIZE;
 				oid_copy_in_addr(offset,
 						 &lsa->data->adv_router);
 
@@ -1106,7 +1108,7 @@ static struct ospf_area_range *ospfAreaRangeLookup(struct variable *v,
 		if (!area)
 			return NULL;
 
-		offset++;
+		offset += IN_ADDR_SIZE;
 
 		/* Lookup area range. */
 		oid2in_addr(offset, IN_ADDR_SIZE, range_net);
@@ -1135,7 +1137,7 @@ static struct ospf_area_range *ospfAreaRangeLookup(struct variable *v,
 			return NULL;
 
 		do {
-			offset++;
+			offset += IN_ADDR_SIZE;
 			offsetlen -= IN_ADDR_SIZE;
 			len = offsetlen;
 
@@ -1157,7 +1159,7 @@ static struct ospf_area_range *ospfAreaRangeLookup(struct variable *v,
 				/* Fill in value. */
 				offset = name + v->namelen;
 				oid_copy_in_addr(offset, area_id);
-				offset++;
+				offset += IN_ADDR_SIZE;
 				oid_copy_in_addr(offset, range_net);
 
 				return range;
@@ -1560,7 +1562,7 @@ static struct ospf_interface *ospfIfLookup(struct variable *v, oid *name,
 			*length = v->namelen + IN_ADDR_SIZE + 1;
 			offset = name + v->namelen;
 			oid_copy_in_addr(offset, ifaddr);
-			offset++;
+			offset += IN_ADDR_SIZE;
 			*offset = *ifindex;
 			return oi;
 		}
@@ -1704,7 +1706,7 @@ static struct ospf_interface *ospfIfMetricLookup(struct variable *v, oid *name,
 			*length = v->namelen + IN_ADDR_SIZE + 1 + 1;
 			offset = name + v->namelen;
 			oid_copy_in_addr(offset, ifaddr);
-			offset++;
+			offset += IN_ADDR_SIZE;
 			*offset = *ifindex;
 			offset++;
 			*offset = OSPF_SNMP_METRIC_VALUE;
@@ -2242,7 +2244,7 @@ static struct ospf_lsa *ospfExtLsdbLookup(struct variable *v, oid *name,
 
 		/* LS ID. */
 		oid2in_addr(offset, IN_ADDR_SIZE, ls_id);
-		offset++;
+		offset += IN_ADDR_SIZE;
 
 		/* Router ID. */
 		oid2in_addr(offset, IN_ADDR_SIZE, router_id);
@@ -2270,7 +2272,7 @@ static struct ospf_lsa *ospfExtLsdbLookup(struct variable *v, oid *name,
 
 		oid2in_addr(offset, len, ls_id);
 
-		offset++;
+		offset += IN_ADDR_SIZE;
 		offsetlen -= IN_ADDR_SIZE;
 
 		/* Router ID. */
@@ -2293,7 +2295,7 @@ static struct ospf_lsa *ospfExtLsdbLookup(struct variable *v, oid *name,
 			*offset = OSPF_AS_EXTERNAL_LSA;
 			offset++;
 			oid_copy_in_addr(offset, &lsa->data->id);
-			offset++;
+			offset += IN_ADDR_SIZE;
 			oid_copy_in_addr(offset, &lsa->data->adv_router);
 
 			return lsa;
@@ -2427,10 +2429,11 @@ static void ospfTrapNbrStateChange(struct ospf_neighbor *on)
 	oid_copy_in_addr(index, &(on->address.u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
-		  ospfNbrTrapList, array_size(ospfNbrTrapList), NBRSTATECHANGE);
+		  ospfNbrTrapList, array_size(ospfNbrTrapList), NBRSTATECHANGE,
+		  stored_context);
 }
 
 static void ospfTrapVirtNbrStateChange(struct ospf_neighbor *on)
@@ -2442,11 +2445,11 @@ static void ospfTrapVirtNbrStateChange(struct ospf_neighbor *on)
 	oid_copy_in_addr(index, &(on->address.u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
 		  ospfVirtNbrTrapList, array_size(ospfVirtNbrTrapList),
-		  VIRTNBRSTATECHANGE);
+		  VIRTNBRSTATECHANGE, stored_context);
 }
 
 static int ospf_snmp_nsm_change(struct ospf_neighbor *nbr, int next_state,
@@ -2486,10 +2489,11 @@ static void ospfTrapIfStateChange(struct ospf_interface *oi)
 	oid_copy_in_addr(index, &(oi->address->u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
-		  ospfIfTrapList, array_size(ospfIfTrapList), IFSTATECHANGE);
+		  ospfIfTrapList, array_size(ospfIfTrapList), IFSTATECHANGE,
+		  stored_context);
 }
 
 static void ospfTrapVirtIfStateChange(struct ospf_interface *oi)
@@ -2501,11 +2505,11 @@ static void ospfTrapVirtIfStateChange(struct ospf_interface *oi)
 	oid_copy_in_addr(index, &(oi->address->u.prefix4));
 	index[IN_ADDR_SIZE] = 0;
 
-	smux_trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
+	smux_v3trap(ospf_variables, array_size(ospf_variables), ospf_trap_oid,
 		  array_size(ospf_trap_oid), ospf_oid,
 		  sizeof(ospf_oid) / sizeof(oid), index, IN_ADDR_SIZE + 1,
 		  ospfVirtIfTrapList, array_size(ospfVirtIfTrapList),
-		  VIRTIFSTATECHANGE);
+		  VIRTIFSTATECHANGE, stored_context);
 }
 
 static int ospf_snmp_ism_change(struct ospf_interface *oi, int state,
@@ -2530,7 +2534,15 @@ static int ospf_snmp_init(struct event_loop *tm)
 	ospf_snmp_iflist = list_new();
 	ospf_snmp_vl_table = route_table_init();
 	smux_init(tm);
-	REGISTER_MIB("mibII/ospf", ospf_variables, variable, ospf_oid);
+	const char *context = THIS_MODULE->load_args;
+	if (context != NULL) {
+		strncpy(stored_context, context, SNMP_MAX_CONTEXT_SIZE);
+	}
+	register_mib_context("mibII/ospf", ospf_variables,
+				sizeof(struct variable),
+				sizeof(ospf_variables) / sizeof(struct variable),
+				ospf_oid, sizeof(ospf_oid) / sizeof(oid),
+				DEFAULT_MIB_PRIORITY, 0, 0, NULL, context, -1, 0);
 	return 0;
 }
 

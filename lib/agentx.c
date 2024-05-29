@@ -295,6 +295,23 @@ void smux_trap(struct variable *vp, size_t vp_len, const oid *ename,
 			      trapobjlen, sptrap);
 }
 
+void smux_v3trap(struct variable *vp, size_t vp_len, const oid *ename,
+	       size_t enamelen, const oid *name, size_t namelen,
+	       const oid *iname, size_t inamelen,
+	       const struct trap_object *trapobj, size_t trapobjlen,
+	       uint8_t sptrap, const char *context)
+{
+	struct index_oid trap_index[1];
+
+	/* copy the single index into the multi-index format */
+	oid_copy(trap_index[0].indexname, iname, inamelen);
+	trap_index[0].indexlen = inamelen;
+
+	smux_v3trap_multi_index(vp, vp_len, ename, enamelen, name, namelen,
+			      trap_index, array_size(trap_index), trapobj,
+			      trapobjlen, sptrap, context);
+}
+
 int smux_trap_multi_index(struct variable *vp, size_t vp_len, const oid *ename,
 			  size_t enamelen, const oid *name, size_t namelen,
 			  struct index_oid *iname, size_t index_len,
@@ -385,12 +402,108 @@ int smux_trap_multi_index(struct variable *vp, size_t vp_len, const oid *ename,
 		}
 	}
 
-
 	send_v2trap(notification_vars);
 	snmp_free_varbind(notification_vars);
 	agentx_events_update();
 	return 1;
 }
+
+int smux_v3trap_multi_index(struct variable *vp, size_t vp_len, const oid *ename,
+			  size_t enamelen, const oid *name, size_t namelen,
+			  struct index_oid *iname, size_t index_len,
+			  const struct trap_object *trapobj, size_t trapobjlen,
+			  uint8_t sptrap, const char *context)
+{
+	oid objid_snmptrap[] = {1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0};
+	size_t objid_snmptrap_len = sizeof(objid_snmptrap) / sizeof(oid);
+	oid notification_oid[MAX_OID_LEN];
+	size_t notification_oid_len;
+	unsigned int i;
+
+	netsnmp_variable_list *notification_vars = NULL;
+	if (!agentx_enabled)
+		return 0;
+
+	/* snmpTrapOID */
+	oid_copy(notification_oid, ename, enamelen);
+	notification_oid[enamelen] = sptrap;
+	notification_oid_len = enamelen + 1;
+	snmp_varlist_add_variable(&notification_vars, objid_snmptrap,
+				  objid_snmptrap_len, ASN_OBJECT_ID,
+				  (uint8_t *)notification_oid,
+				  notification_oid_len * sizeof(oid));
+
+	/* Provided bindings */
+	for (i = 0; i < trapobjlen; i++) {
+		unsigned int j;
+		oid oid[MAX_OID_LEN];
+		size_t oid_len, onamelen;
+		uint8_t *val;
+		size_t val_len;
+		WriteMethod *wm = NULL;
+		struct variable cvp;
+		unsigned int iindex;
+		/*
+		 * this allows the behaviour of smux_trap with a singe index
+		 * for all objects to be maintained whilst allowing traps which
+		 * have different indices per object to be supported
+		 */
+		iindex = (index_len == 1) ? 0 : i;
+
+		/* Make OID. */
+		if (trapobj[i].namelen > 0) {
+			/* Columnar object */
+			onamelen = trapobj[i].namelen;
+			oid_copy(oid, name, namelen);
+			oid_copy(oid + namelen, trapobj[i].name, onamelen);
+			oid_copy(oid + namelen + onamelen,
+				 iname[iindex].indexname,
+				 iname[iindex].indexlen);
+			oid_len = namelen + onamelen + iname[iindex].indexlen;
+		} else {
+			/* Scalar object */
+			onamelen = trapobj[i].namelen * (-1);
+			oid_copy(oid, name, namelen);
+			oid_copy(oid + namelen, trapobj[i].name, onamelen);
+			oid[onamelen + namelen] = 0;
+			oid_len = namelen + onamelen + 1;
+		}
+
+		/* Locate the appropriate function and type in the MIB registry.
+		 */
+		for (j = 0; j < vp_len; j++) {
+			if (oid_compare(trapobj[i].name, onamelen, vp[j].name,
+					vp[j].namelen)
+			    != 0)
+				continue;
+			/* We found the appropriate variable in the MIB
+			 * registry. */
+			oid_copy(cvp.name, name, namelen);
+			oid_copy(cvp.name + namelen, vp[j].name, vp[j].namelen);
+			cvp.namelen = namelen + vp[j].namelen;
+			cvp.type = vp[j].type;
+			cvp.magic = vp[j].magic;
+			cvp.acl = vp[j].acl;
+			cvp.findVar = vp[j].findVar;
+
+			/* Grab the result. */
+			val = cvp.findVar(&cvp, oid, &oid_len, 1, &val_len,
+					  &wm);
+			if (!val)
+				break;
+			snmp_varlist_add_variable(&notification_vars, oid,
+						  oid_len, vp[j].type, val,
+						  val_len);
+			break;
+		}
+	}
+
+	send_v3trap(notification_vars, context);
+	snmp_free_varbind(notification_vars);
+	agentx_events_update();
+	return 1;
+}
+
 
 void smux_events_update(void)
 {
